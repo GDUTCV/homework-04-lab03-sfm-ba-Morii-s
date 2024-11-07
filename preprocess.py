@@ -72,15 +72,49 @@ def get_camera_intrinsics() -> np.ndarray:
     return intrinsics
 
 
-def encode_keypoint(kp: cv2.KeyPoint) -> tuple:
-    """ encodes keypoint into a tuple for saving """
-    return kp.pt, kp.size, kp.angle, kp.response, kp.octave, kp.class_id
+# def encode_keypoint(kp: cv2.KeyPoint) -> tuple:
+#     """ encodes keypoint into a tuple for saving """
+#     return kp.pt, kp.size, kp.angle, kp.response, kp.octave, kp.class_id
+#
+#
+# def decode_keypoint(kp: tuple) -> cv2.KeyPoint:
+#     """ decodes keypoint back into cv2.KeyPoint class. """
+#     print(f"Keypoint data: {kp}")
+#     return cv2.KeyPoint(x=kp[0][0], y=kp[0][1], size=kp[1], angle=kp[2], response=kp[3],
+#                         octave=kp[4], class_id=kp[5])
+
+def encode_keypoint(kp):
+    """
+    Encodes a cv2.KeyPoint into a tuple that can be serialized.
+
+    Args:
+        kp: cv2.KeyPoint object.
+
+    Returns:
+        tuple: Encoded keypoint data.
+    """
+    return ((kp.pt[0], kp.pt[1]), kp.size, kp.angle, kp.response, kp.octave, kp.class_id)
 
 
-def decode_keypoint(kp: tuple) -> cv2.KeyPoint:
-    """ decodes keypoint back into cv2.KeyPoint class. """
-    return cv2.KeyPoint(x=kp[0][0], y=kp[0][1], size=kp[1], angle=kp[2], response=kp[3],
-                        octave=kp[4], class_id=kp[5])
+def decode_keypoint(kp):
+    """
+    Decodes a serialized keypoint back to a cv2.KeyPoint.
+
+    Args:
+        kp: Serialized keypoint data.
+
+    Returns:
+        cv2.KeyPoint: Decoded KeyPoint object.
+    """
+    return cv2.KeyPoint(
+        x=kp[0][0],  # x coordinate
+        y=kp[0][1],  # y coordinate
+        _size=kp[1],  # Size of the keypoint
+        _angle=kp[2],  # Angle of the keypoint
+        _response=kp[3],  # Response value
+        _octave=kp[4],  # Octave
+        _class_id=kp[5]  # Class ID
+    )
 
 
 def get_detected_keypoints(image_id: str) -> (list, list):
@@ -118,9 +152,10 @@ def detect_keypoints(image_file: os.path):
     """ YOUR CODE HERE:
     Detect keypoints using cv2.SIFT_create() and sift.detectAndCompute
     """
-    
-
-
+    image = cv2.imread(image_file, cv2.IMREAD_GRAYSCALE)
+    #image = cv2.imread(image_file)
+    sift = cv2.SIFT_create()
+    keypoints, descriptors = sift.detectAndCompute(image, None)
     """ END YOUR CODE HERE. """
 
     keypoints = [encode_keypoint(kp=kp) for kp in keypoints]
@@ -167,9 +202,13 @@ def create_feature_matches(image_file1: os.path, image_file2: os.path, lowe_rati
     1. Run cv.BFMatcher() and matcher.knnMatch(descriptors1, descriptors2, 2)
     2. Filter the feature matches using the Lowe ratio test.
     """
-    
+    bf = cv2.BFMatcher()
+    matches = bf.knnMatch(descriptors1, descriptors2, 2)
 
-
+    # Apply ratio test
+    for m, n in matches:
+        if m.distance < lowe_ratio * n.distance:
+            good_matches.append([m])
     """ END YOUR CODE HERE. """
     if len(good_matches) < min_matches:
         return match_id
@@ -242,9 +281,7 @@ def create_ransac_matches(image_file1: os.path, image_file2: os.path,
     Perform goemetric verification by finding the essential matrix between keypoints in the first image and keypoints in
     the second image using cv2.findEssentialMatrix(..., method=cv2.RANSAC, threshold=ransac_threshold, ...)
     """
-    
-
-
+    essential_mtx, is_inlier= cv2.findEssentialMat(points1=points1, points2=points2, cameraMatrix=camera_intrinsics, method=cv2.RANSAC, threshold=ransac_threshold)
     """ END YOUR CODE HERE """
 
     is_inlier = is_inlier.ravel().tolist()
@@ -278,9 +315,18 @@ def create_scene_graph(image_files: list, min_num_inliers: int = 40):
     Add edges to <graph> if the minimum number of geometrically verified inliers between images is at least  
     <min_num_inliers> 
     """
-    
+    for i in range(len(image_ids)):
+        id_1 = image_ids[i]
+        for j in range(i+1, len(image_ids)):
+            id_2 = image_ids[j]
+            match_id = '{}_{}'.format(id_1, id_2)
+            match_save_file = os.path.join(RANSAC_MATCH_DIR, match_id + '.npy')
 
-    
+            # Check file exist or not
+            if os.path.exists(match_save_file):
+                inliers = np.load(match_save_file)
+                if len(inliers) > min_num_inliers:
+                    graph.add_edge(i, j)
     """ END YOUR CODE HERE """
 
     graph_dict = {node: [] for node in image_ids}
